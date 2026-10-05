@@ -1,0 +1,19 @@
+# Field sizing assumptions of the monitor. The simulator brakes at 1.0 m/s^2; the monitor assumes 0.8 m/s^2.
+protective_field_monitor:
+  ros__parameters:
+    use_sim_time: true
+    robot_length: 1.0
+    robot_width: 0.7
+    scanner_x: 0.5
+    t_response: 0.2        # scan period (67 ms) + software + drive response, rounded up
+    a_brake: 0.8
+    k_approach: 0.0        # 0 = fields sized for the robot's own stopping distance only; 1.6 = ISO 13855 walking speed
+    c_margin: 0.15
+    lateral_margin: 0.10
+    warning_time: 1.0
+    warning_margin: 0.5
+    warning_lateral: 0.30
+    warning_speed: 0.3
+    hold_time: 1.0
+    scan_timeout: 0.3
+    speed_bands: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2]

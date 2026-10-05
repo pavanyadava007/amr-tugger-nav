@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AMR Tugger Replay</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1d2330; --muted:#5d6678; --card:#ffffff; --line:#d5d9e0; --rack:#8b93a3;
+          --robot:#1f4e9c; --prot:#d23c3c; --warn:#e2a019; --clear:#2e8b57; --person:#7b3fb3; --path:#9db4dc; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg:#14171d; --fg:#e6e9ef; --muted:#9aa3b2; --card:#1d2129; --line:#323844; --rack:#596173;
+    --robot:#7aa7f0; --prot:#ff6b6b; --warn:#f2c14e; --clear:#5cc98a; --person:#c39bec; --path:#3d5480; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p { margin: 4px 0 12px; color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin: 12px 0; }
+  select, button { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  input[type=range] { flex: 1 1 200px; }
+  canvas { width: 100%; height: auto; display:block; }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+  .stat { background: var(--card); border:1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display:block; font-size: 18px; }
+  .stat span { color: var(--muted); font-size: 13px; }
+  .legend span { margin-right: 14px; white-space: nowrap; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:4px; }
+  a { color: var(--robot); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tugger AMR replay: protective fields ON vs OFF</h1>
+  <p>Recorded missions from a ROS 2 Jazzy simulation (Nav2 + C++ protective field monitor + VDA 5050 bridge).
+     Same seed = same people at the same moments. Simulation only; the field monitor is not a certified safety function.
+     Code and measured results: <a href="https://github.com/pavanyadava007/amr-tugger-nav">github.com/pavanyadava007/amr-tugger-nav</a></p>
+  <div class="controls">
+    <select id="mission" aria-label="mission"></select>
+    <button id="play">Play</button>
+    <select id="speed" aria-label="playback speed"><option value="1">1x</option><option value="4" selected>4x</option><option value="10">10x</option></select>
+    <input id="time" type="range" min="0" max="1000" value="0" aria-label="time">
+    <span id="clock">0.0 s</span>
+  </div>
+  <div class="card"><canvas id="map" width="1280" height="880"></canvas></div>
+  <p class="legend"><span><i class="sw" style="background:var(--prot)"></i>protective field</span>
+    <span><i class="sw" style="background:var(--warn)"></i>warning field</span>
+    <span><i class="sw" style="background:var(--person)"></i>person</span>
+    <span><i class="sw" style="background:var(--rack)"></i>racks, pallets, machines</span>
+    <span>robot colour: green clear, amber warning, red protective stop</span></p>
+  <div class="stats" id="stats"></div>
+</main>
+<script>
+let DATA = null, M = null, idx = 0, playing = false, last = 0;
+const cv = document.getElementById('map'), ctx = cv.getContext('2d');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const LABEL = {off: 'OFF (Nav2 alone)', on: 'ON', 'on_k1.6': 'ON, k_approach 1.6'};
+
+fetch('data.json').then(r => r.json()).then(d => {
+  DATA = d;
+  const sel = document.getElementById('mission');
+  d.missions.forEach((m, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${m.kind === 'people' ? 'people' : 'no people'}, seed ${m.seed}: ${LABEL[m.condition] || m.condition}`;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => select(+sel.value);
+  select(0);
+  requestAnimationFrame(loop);
+});
+
+function select(i) { M = DATA.missions[i]; idx = 0; document.getElementById('time').max = M.samples.length - 1; stats(); draw(); }
+
+function stats() {
+  const s = [['Result', M.success ? 'finished' : 'failed'], ['Mission time', M.mission_time_s + ' s'],
+    ['Min clearance to a person', M.min_clearance_people_m == null ? '-' : M.min_clearance_people_m.toFixed(2) + ' m'],
+    ['Person contacts', M.people_contacts],
+    ['Protective stops', M.condition === 'off' ? '- (observe only)' : M.protective_stops],
+    ['Warning slowdowns', M.condition === 'off' ? '- (observe only)' : M.warning_entries]];
+  document.getElementById('stats').innerHTML = s.map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+}
+
+document.getElementById('play').onclick = () => { playing = !playing; document.getElementById('play').textContent = playing ? 'Pause' : 'Play'; };
+document.getElementById('time').oninput = e => { idx = +e.target.value; draw(); };
+
+function loop(ts) {
+  if (playing && M) {
+    const sp = +document.getElementById('speed').value;
+    const t0 = M.samples[idx][0];
+    const target = t0 + (ts - last) / 1000 * sp;
+    while (idx < M.samples.length - 1 && M.samples[idx + 1][0] <= target) idx++;
+    if (idx >= M.samples.length - 1) { playing = false; document.getElementById('play').textContent = 'Play'; }
+    draw();
+  }
+  last = ts;
+  requestAnimationFrame(loop);
+}
+
+function draw() {
+  if (!M) return;
+  const L = DATA.layout, W = L.size[0], H = L.size[1];
+  const s = Math.min(cv.width / W, cv.height / H);
+  const X = x => x * s, Y = y => cv.height - y * s;
+  ctx.fillStyle = css('--card'); ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = css('--rack');
+  L.blocks.forEach(b => ctx.fillRect(X(b[0]), Y(b[3]), (b[2] - b[0]) * s, (b[3] - b[1]) * s));
+  // loop path and nodes
+  ctx.strokeStyle = css('--path'); ctx.lineWidth = 3; ctx.setLineDash([10, 8]); ctx.beginPath();
+  M.loop.forEach((n, i) => { const p = L.nodes[n]; i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])); });
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = css('--muted'); ctx.font = '22px system-ui';
+  Object.entries(L.nodes).forEach(([n, p]) => { ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), 5, 0, 7); ctx.fill(); ctx.fillText(n, X(p[0]) + 8, Y(p[1]) - 8); });
+  // trail
+  ctx.strokeStyle = css('--robot'); ctx.globalAlpha = 0.35; ctx.lineWidth = 2; ctx.beginPath();
+  for (let i = 0; i <= idx; i++) { const q = M.samples[i]; i ? ctx.lineTo(X(q[1]), Y(q[2])) : ctx.moveTo(X(q[1]), Y(q[2])); }
+  ctx.stroke(); ctx.globalAlpha = 1;
+  const [t, x, y, yaw, v, people, state, pl, wl] = M.samples[idx];
+  const R = DATA.robot, F = DATA.fields;
+  ctx.save(); ctx.translate(X(x), Y(y)); ctx.rotate(-yaw);
+  const rect = (x0, len, w, col, alpha) => { ctx.globalAlpha = alpha; ctx.fillStyle = col; ctx.fillRect(x0 * s, -w / 2 * s, len * s, w * s); ctx.globalAlpha = 1; };
+  rect(R.length / 2, wl, F.warning_width, css('--warn'), 0.28);
+  rect(R.length / 2, pl, F.protective_width, css('--prot'), 0.38);
+  rect(-R.length / 2, R.length, R.width, [css('--clear'), css('--warn'), css('--prot')][state] || css('--robot'), 1);
+  ctx.fillStyle = css('--card'); ctx.beginPath(); ctx.moveTo(R.length / 2 * s - 4, 0); ctx.lineTo(R.length / 2 * s - 16, -8); ctx.lineTo(R.length / 2 * s - 16, 8); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = css('--person');
+  people.forEach(p => { ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), 0.25 * s, 0, 7); ctx.fill(); });
+  document.getElementById('time').value = idx;
+  document.getElementById('clock').textContent = `${t.toFixed(1)} s, ${v.toFixed(2)} m/s`;
+}
+</script>
+</body>
+</html>

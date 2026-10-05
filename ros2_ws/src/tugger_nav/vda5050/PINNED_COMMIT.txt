@@ -1,0 +1,5 @@
+Source: https://github.com/VDA5050/VDA5050
+Tag: 2.1.0
+Commit: 511d01d71587e8a3dc5e71d4f41dc52466f4284c
+Files: json_schemas/order.schema, json_schemas/state.schema, json_schemas/instantActions.schema, LICENSE.txt
+Change: one en dash in a description string of state.schema (info array) replaced with "-"; nothing else changed.

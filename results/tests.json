@@ -1,0 +1,35 @@
+{
+  "suites": [
+    {
+      "file": "test_field.gtest.xml",
+      "kind": "gtest",
+      "tests": 16,
+      "failures": 0,
+      "skipped": 0
+    },
+    {
+      "file": "test_sim.gtest.xml",
+      "kind": "gtest",
+      "tests": 8,
+      "failures": 0,
+      "skipped": 0
+    },
+    {
+      "file": "test_test_order_to_finished.py.xunit.xml",
+      "kind": "launch_testing",
+      "tests": 5,
+      "failures": 0,
+      "skipped": 0
+    },
+    {
+      "file": "test_vda5050.gtest.xml",
+      "kind": "gtest",
+      "tests": 12,
+      "failures": 0,
+      "skipped": 0
+    }
+  ],
+  "total": 41,
+  "failures": 0,
+  "skipped": 0
+}

@@ -1,0 +1,23 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx run ruff check scripts ros2_ws/src/tugger_nav/test
+      - name: Map generator output is committed
+        run: python3 scripts/make_map.py && git diff --exit-code ros2_ws/src/tugger_nav/maps
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (colcon, -Werror) in ros:jazzy-ros-base + Nav2
+        run: docker build -f docker/Dockerfile -t amr-tugger-nav:jazzy .
+      - name: GoogleTest + launch_testing (full stack, order in -> state finished)
+        run: |
+          mkdir -p results
+          docker run --rm --network none -v $PWD/results:/ws/results -v $PWD/scripts:/ws/scripts:ro amr-tugger-nav:jazzy \
+            bash -c '. /ws/ros2_ws/install/setup.sh && cd /ws/ros2_ws && colcon test --event-handlers console_direct+ ; colcon test-result --verbose ; python3 /ws/scripts/collect_tests.py /ws/results/ci_tests.json'
+      - name: Report and Space data regenerate from the committed raw results
+        run: python3 scripts/make_report.py && python3 scripts/build_space.py && git diff --exit-code docs/RESULTS.md README.md results/summary.json site/data.json

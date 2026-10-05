@@ -1,0 +1,6 @@
+build/
+install/
+log/
+__pycache__/
+results/raw/*.log
+results/eval_run.log
